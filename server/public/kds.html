@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Blink · Kitchen Display</title>
+<style>
+  :root { --bg:#0b0d10; --card:#16191f; --border:#282d36; --muted:#8b93a1; --text:#f2f4f8; --green:#22c55e; --red:#ef4444; --amber:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:16px 22px; border-bottom:1px solid var(--border); }
+  header h1 { font-size:20px; margin:0; }
+  .paused { color:var(--red); font-weight:800; }
+  .wrap { padding:20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; }
+  .ticket { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; }
+  .ticket.new { border-color:var(--amber); animation: flash 1s steps(2,end) infinite; }
+  @keyframes flash { 50% { background:#3a2f12; border-color:#f8c765; } }
+  .ticket.cooking { opacity:.75; }
+  .tk-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .tk-id { font-weight:800; font-size:18px; }
+  .tk-time { color:var(--muted); font-size:13px; }
+  ul { list-style:none; padding:0; margin:0 0 14px; }
+  li { font-size:18px; padding:6px 0; border-bottom:1px solid var(--border); }
+  li:last-child { border-bottom:none; }
+  .lvl { font-size:12px; font-weight:800; padding:3px 8px; border-radius:20px; background:#3a2f12; color:#f8c765; }
+  .lvl.l3 { background:#3a1e1e; color:#f0a3a3; } .lvl.l4 { background:var(--red); color:#fff; }
+  .actions { display:flex; gap:10px; }
+  button { flex:1; cursor:pointer; border:none; border-radius:10px; font-weight:800; font-size:15px; padding:14px; }
+  .accept { background:var(--green); color:#04240f; }
+  .reject { background:#2a1e1e; color:#f0a3a3; border:1px solid #5a2b2b; }
+  .cooking-tag { background:#12233a; color:#7bb6f0; font-size:12px; font-weight:800; padding:4px 10px; border-radius:20px; }
+  .empty { text-align:center; color:var(--muted); padding:80px; }
+  .mute { background:none; border:1px solid var(--border); color:var(--muted); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer; flex:none; }
+</style>
+</head>
+<body>
+<div id="app"><div class="empty">Loading kitchen…</div></div>
+<script>
+const params = new URLSearchParams(location.search);
+const vendor = params.get('vendor') || 'grill';
+let muted = false;
+let audioCtx = null;
+
+function beep() {
+  if (muted) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'square'; o.frequency.value = 880;
+    g.gain.value = 0.08; o.connect(g); g.connect(audioCtx.destination);
+    o.start(); o.stop(audioCtx.currentTime + 0.18);
+  } catch {}
+}
+
+const since = (t) => { const s = Math.floor((Date.now()-t)/1000); return s<60?`${s}s ago`:`${Math.floor(s/60)}m ${s%60}s ago`; };
+const LVL = { 1:'SMS sent', 2:'2nd SMS', 3:'☎ call placed', 4:'VENDOR PAUSED' };
+
+async function render() {
+  let orders;
+  try { orders = await (await fetch(`/api/kds/orders?vendor=${vendor}`)).json(); }
+  catch { return; }
+  const pending = orders.filter(o => o.kitchenStatus === 'pending');
+  if (pending.length) beep();
+  const cards = orders.filter(o => o.kitchenStatus === 'pending' || o.kitchenStatus === 'cooking').map(o => {
+    const isNew = o.kitchenStatus === 'pending';
+    const items = o.kitchenItems.map(i => `<li>${i.emoji} ${i.name}${i.qty>1?' ×'+i.qty:''}</li>`).join('');
+    return `<div class="ticket ${isNew?'new':'cooking'}">
+      <div class="tk-top"><span class="tk-id">#${o.shortId}</span>
+        ${isNew && o.escalationLevel>0 ? `<span class="lvl l${o.escalationLevel}">⚠ ${LVL[o.escalationLevel]}</span>` : (o.kitchenStatus==='cooking'?'<span class="cooking-tag">COOKING</span>':'')}
+      </div>
+      <div class="tk-time">${o.building} · ${since(o.placedAt)}</div>
+      <ul>${items}</ul>
+      ${isNew ? `<div class="actions">
+        <button class="accept" onclick="accept('${o.id}')">Accept & start cooking</button>
+        <button class="reject" onclick="reject('${o.id}')">Reject / out of stock</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('app').innerHTML =
+    `<header><h1>🍔 Late Night Grill — Kitchen</h1>
+       <button class="mute" onclick="toggleMute()">${muted?'🔇 unmute':'🔊 sound on'}</button></header>
+     <div class="wrap">${cards ? `<div class="grid">${cards}</div>` : `<div class="empty">No active tickets. Waiting for orders…</div>`}</div>`;
+}
+window.accept = async (id) => { await fetch(`/api/kds/orders/${id}/accept`, {method:'POST'}); render(); };
+window.reject = async (id) => { await fetch(`/api/kds/orders/${id}/reject`, {method:'POST'}); render(); };
+window.toggleMute = () => { muted = !muted; render(); };
+render(); setInterval(render, 2000);
+</script>
+</body>
+</html>

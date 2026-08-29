@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Blink · Admin Command Center</title>
+<style>
+  :root { --brand:#2563EB; --bg:#0b0d10; --card:#16191f; --border:#282d36; --muted:#8b93a1; --text:#f2f4f8; --green:#22c55e; --red:#ef4444; --amber:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid var(--border); }
+  header h1 { font-size:18px; margin:0; }
+  .wrap { padding:16px 20px; }
+  .login { max-width:340px; margin:80px auto; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px; }
+  input { width:100%; padding:12px; border-radius:10px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:15px; }
+  button { cursor:pointer; border:none; border-radius:8px; font-weight:700; font-size:13px; padding:8px 12px; }
+  .btn-brand { background:var(--brand); color:#fff; width:100%; margin-top:12px; padding:12px; }
+  .section-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:18px 0 10px; font-weight:800; }
+  .board { display:grid; grid-template-columns:repeat(5,minmax(180px,1fr)); gap:12px; overflow-x:auto; }
+  .col { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px; min-width:180px; }
+  .col h3 { font-size:12px; margin:0 0 10px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .oc { background:#1d222b; border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:8px; }
+  .oc.esc { border-color:var(--amber); }
+  .oc-id { font-weight:800; font-size:13px; display:flex; justify-content:space-between; align-items:center; }
+  .oc-meta { font-size:11px; color:var(--muted); margin:4px 0 6px; }
+  .badge { font-size:9px; font-weight:800; padding:2px 6px; border-radius:8px; text-transform:uppercase; }
+  .b-esc { background:#3a2f12; color:#f8c765; } .b-paused { background:var(--red); color:#fff; } .b-sub { background:#3a2f12; color:#f8c765; }
+  .b-bcast { background:#3a1e1e; color:#f0a3a3; }
+  .ocbtns { display:flex; gap:6px; }
+  .cancel { background:#2a1e1e; color:#f0a3a3; border:1px solid #5a2b2b; flex:1; }
+  .reassign { background:#1d222b; color:#9cc3f0; border:1px solid #2a3a52; flex:1; }
+  .dep { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .dep:last-child { border-bottom:none; }
+  .dep-status { font-size:10px; font-weight:800; padding:2px 7px; border-radius:8px; text-transform:uppercase; }
+  .d-held { background:#3a2f12; color:#f8c765; } .d-returned { background:#12331f; color:#7be0a5; } .d-none { background:#282d36; color:#8b93a1; }
+  .depbtn { background:var(--bg); color:var(--text); border:1px solid var(--border); font-size:11px; padding:5px 9px; margin-left:6px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; }
+  .panel { flex:1; min-width:280px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; }
+  .vend { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); }
+  .vend:last-child { border-bottom:none; }
+  .toggle { border:1px solid var(--border); background:var(--bg); color:var(--text); }
+  .toggle.on { background:#12331f; color:#7be0a5; border-color:#1e5a38; }
+  .toggle.off { background:#3a1e1e; color:#f0a3a3; border-color:#5a2b2b; }
+  .fleet-row, .empty { font-size:13px; color:var(--muted); padding:6px 0; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+let key = localStorage.getItem('blink_admin_key') || '';
+const COLS = [['PLACED','Placed'],['ACCEPTED','Courier assigned'],['PICKING','Shopper shopping'],['OUT_FOR_DELIVERY','Out for delivery'],['DELIVERED','Delivered']];
+const money = n => '$'+n.toFixed(2);
+
+async function api(p, opts={}) {
+  const res = await fetch(p, { ...opts, headers:{'Content-Type':'application/json','X-Admin-Key':key,...(opts.headers||{})} });
+  if (res.status === 401) throw new Error('unauthorized');
+  return res.json();
+}
+function loginView(){
+  document.getElementById('app').innerHTML = `<div class="login">
+    <h2>🛰️ Blink Command Center</h2>
+    <p style="color:#8b93a1;font-size:14px;margin-top:0">Founders only. Enter the admin key.</p>
+    <input id="key" type="password" placeholder="Admin key" />
+    <button class="btn-brand" onclick="doLogin()">Sign in</button></div>`;
+}
+window.doLogin = () => { key = document.getElementById('key').value.trim(); localStorage.setItem('blink_admin_key', key); start(); };
+
+async function render(){
+  let data;
+  try { data = await api('/api/admin/overview'); } catch { return loginView(); }
+  const active = data.orders.filter(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED');
+  const board = COLS.map(([st,label]) => {
+    const cards = data.orders.filter(o => o.status === st).slice(0,12).map(o => {
+      const esc = o.kitchenStatus === 'pending' && o.escalationLevel > 0;
+      const paused = o.escalationLevel >= 4;
+      const bcast = o.dispatchLevel > 0 && !o.driverName;
+      let badge = '';
+      if (paused) badge = '<span class="badge b-paused">paused</span>';
+      else if (esc) badge = `<span class="badge b-esc">esc L${o.escalationLevel}</span>`;
+      else if (bcast) badge = `<span class="badge b-bcast">${o.dispatchLevel>=2?'no courier':'broadcast'}</span>`;
+      else if (o.needsSubstitution) badge = '<span class="badge b-sub">sub</span>';
+      return `<div class="oc ${esc||bcast?'esc':''}">
+        <div class="oc-id">#${o.shortId}${badge}</div>
+        <div class="oc-meta">${o.campusId==='unl'?'UNL':'CU'} · ${o.building} · ${money(o.total)}${o.driverName?' · '+o.driverName:''}</div>
+        ${st!=='DELIVERED'?`<div class="ocbtns">
+          ${o.driverName?`<button class="reassign" onclick="reassign('${o.id}')">Reassign</button>`:''}
+          <button class="cancel" onclick="cancelOrder('${o.id}')">Cancel</button>
+        </div>`:''}
+      </div>`;
+    }).join('') || '<div class="empty">—</div>';
+    return `<div class="col"><h3>${label}</h3>${cards}</div>`;
+  }).join('');
+  const vendors = data.vendors.map(v => `<div class="vend">
+    <span>${v.emoji} ${v.name}${v.kitchen?' · kitchen':''}</span>
+    <button class="toggle ${v.isActive?'on':'off'}" onclick="toggleVendor('${v.id}',${v.isActive?0:1})">${v.isActive?'Active':'Paused'}</button>
+  </div>`).join('');
+  const fleet = data.fleet.length ? data.fleet.map(f => `<div class="fleet-row">🧑‍🚀 ${f.name} — ${f.activeOrders} active</div>`).join('') : '<div class="empty">No couriers on shift</div>';
+  const DSTATUS = { held:'d-held', returned:'d-returned', none:'d-none' };
+  const deposits = (data.couriers || []).map(c => `<div class="dep">
+    <span>🛵 ${c.name} — $${c.scooterDeposit.toFixed(2)}</span>
+    <span>
+      <span class="dep-status ${DSTATUS[c.depositStatus]}">${c.depositStatus}</span>
+      ${c.depositStatus==='held' ? `<button class="depbtn" onclick="deposit('${c.id}','returned')">Return</button>`
+        : c.depositStatus==='returned' ? '' : `<button class="depbtn" onclick="deposit('${c.id}','held')">Collect</button>`}
+    </span>
+  </div>`).join('');
+  document.getElementById('app').innerHTML = `
+    <header><h1>🛰️ Blink Command Center</h1><span style="color:#8b93a1;font-size:13px">${active.length} active orders</span></header>
+    <div class="wrap">
+      <div class="section-title">Live order board</div>
+      <div class="board">${board}</div>
+      <div class="row" style="margin-top:8px">
+        <div class="panel"><div class="section-title" style="margin-top:0">Vendors & menu</div>${vendors}</div>
+        <div class="panel"><div class="section-title" style="margin-top:0">Fleet on shift</div>${fleet}</div>
+        <div class="panel"><div class="section-title" style="margin-top:0">Scooter deposits</div>${deposits}</div>
+      </div>
+    </div>`;
+}
+window.cancelOrder = async (id) => { await api(`/api/admin/orders/${id}/cancel`, {method:'POST'}); render(); };
+window.reassign = async (id) => { await api(`/api/admin/orders/${id}/reassign`, {method:'POST'}); render(); };
+window.deposit = async (id, status) => { await api(`/api/admin/couriers/${id}/deposit`, {method:'POST', body:JSON.stringify({status})}); render(); };
+window.toggleVendor = async (id, active) => { await api(`/api/admin/vendors/${id}/active`, {method:'POST', body:JSON.stringify({active})}); render(); };
+function start(){ render(); clearInterval(window._p); window._p = setInterval(render, 3000); }
+if (key) start(); else loginView();
+</script>
+</body>
+</html>

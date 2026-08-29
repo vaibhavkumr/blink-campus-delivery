@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Blink · Driver</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet" />
+<style>
+  :root { --brand:#9E1B1B; --brand-dark:#7A1616; --bg:#FBF7F1; --card:#FFFFFF; --border:#EBE3D8; --muted:#7C736E; --ink:#1A1413; --green:#2E7D32; --amber:#B45309; --tint:#F6E7E3; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:16px 22px; border-bottom:1px solid var(--border); background:var(--bg); position:sticky; top:0; z-index:5; }
+  header h1 { font-family:'Anton',system-ui; font-weight:400; font-size:26px; margin:0; letter-spacing:.5px; }
+  header h1 .k { color:var(--brand); }
+  header .sub { font-size:13px; color:var(--muted); }
+  header .badge { background:var(--brand); color:#fff; padding:5px 12px; border-radius:20px; font-size:12px; font-weight:700; }
+  .wrap { padding:20px; max-width:1000px; margin:0 auto; }
+  .login { max-width:340px; margin:80px auto; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:24px; }
+  .login h2 { font-family:'Anton',system-ui; font-weight:400; margin:0 0 12px; font-size:24px; }
+  input[type=password] { width:100%; padding:12px; border-radius:12px; border:1px solid var(--border); background:#fff; color:var(--ink); font-size:15px; }
+  button { cursor:pointer; border:none; border-radius:12px; font-weight:700; font-size:14px; padding:11px 14px; }
+  .btn-brand { background:var(--brand); color:#fff; width:100%; margin-top:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px; }
+  .order { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; }
+  .order.done { opacity:.55; }
+  .order.needs { border-color:var(--amber); }
+  .order.broadcast { border-color:var(--brand); box-shadow:0 0 0 2px var(--tint); }
+  .order-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .oid { font-weight:800; font-size:16px; }
+  .status { font-size:11px; font-weight:800; padding:4px 9px; border-radius:20px; text-transform:uppercase; letter-spacing:.03em; background:var(--tint); color:var(--brand-dark); }
+  .status.done { background:#E7F3E8; color:var(--green); }
+  .meta { font-size:12px; color:var(--muted); margin:6px 0 12px; }
+  .meta b { color:var(--ink); }
+  .bcast { background:var(--tint); color:var(--brand-dark); border-radius:10px; padding:8px 10px; font-size:12px; font-weight:700; margin-bottom:10px; }
+  .map { height:150px; border-radius:12px; overflow:hidden; margin-bottom:12px; border:1px solid var(--border); }
+  .checklist { list-style:none; padding:0; margin:0 0 12px; }
+  .checklist li { display:flex; align-items:center; gap:8px; padding:9px 0; border-bottom:1px solid var(--border); font-size:14px; }
+  .checklist li:last-child { border-bottom:none; }
+  .item-name { flex:1; }
+  .oos-btn { background:#fff; color:var(--brand); border:1px solid var(--border); padding:5px 9px; font-size:12px; }
+  .tag { font-size:10px; font-weight:800; padding:2px 6px; border-radius:6px; text-transform:uppercase; }
+  .tag.sub { background:var(--tint); color:var(--brand-dark); } .tag.refund { background:#FBE9E7; color:var(--brand); } .tag.wait { background:#FCEFD8; color:var(--amber); }
+  .banner { background:#FCEFD8; color:var(--amber); border-radius:10px; padding:10px; font-size:13px; margin-bottom:12px; font-weight:600; }
+  .card-note { background:var(--tint); color:var(--brand-dark); border-radius:10px; padding:10px; font-size:12px; margin-bottom:12px; }
+  .total { font-weight:800; }
+  .toolbar { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+  .toolbar a, .toolbar label { flex:1; text-align:center; text-decoration:none; border-radius:12px; font-weight:700; font-size:13px; padding:11px; cursor:pointer; }
+  .nav-btn { background:#EAF3EC; color:var(--green); border:1px solid #CDE6D2; }
+  .rcpt-btn { background:#fff; color:var(--ink); border:1px solid var(--border); }
+  .rcpt-done { color:var(--green); font-size:12px; font-weight:700; margin-bottom:10px; }
+  .actions button { width:100%; background:var(--brand); color:#fff; }
+  .actions button.accept { background:var(--brand); color:#fff; }
+  .actions button:disabled { opacity:.4; cursor:not-allowed; }
+  .empty { text-align:center; color:var(--muted); padding:60px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<input type="file" id="rcptInput" accept="image/*" capture="environment" style="display:none" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const NEXT = { ACCEPTED:'PICKING', PICKING:'OUT_FOR_DELIVERY', OUT_FOR_DELIVERY:'DELIVERED' };
+const NEXT_LABEL = { ACCEPTED:'Start shopping', PICKING:'Out for delivery', OUT_FOR_DELIVERY:'Mark delivered' };
+let key = localStorage.getItem('blink_staff_key') || '';
+let campuses = [];
+let receiptFor = null;
+let lastHash = '';
+const maps = {};        // orderId -> Leaflet map
+const routeCache = {};  // orderId -> route json
+
+const money = (n) => '$' + n.toFixed(2);
+async function api(pathname, opts={}) {
+  const res = await fetch(pathname, { ...opts, headers: { 'Content-Type':'application/json', 'X-Staff-Key': key, ...(opts.headers||{}) } });
+  if (res.status === 401) throw new Error('unauthorized');
+  return res.json();
+}
+function coordsFor(o) {
+  const c = campuses.find(x => x.id === o.campusId); if (!c) return null;
+  const b = c.buildings.find(x => x.name === o.building);
+  return { store: c.store, drop: b ? { lat:b.lat, lng:b.lng } : c.center };
+}
+function navUrl(o) {
+  const c = coordsFor(o); if (!c) return null;
+  return `https://www.google.com/maps/dir/?api=1&origin=${c.store.lat},${c.store.lng}&destination=${c.drop.lat},${c.drop.lng}&travelmode=bicycling`;
+}
+
+function loginView() {
+  document.getElementById('app').innerHTML = `
+    <div class="login"><h2>BLIN<span style="color:var(--brand)">K</span> Driver</h2>
+      <p style="color:#7C736E;font-size:14px;margin-top:0">Enter the driver access key.</p>
+      <input id="key" type="password" placeholder="Driver key" />
+      <button class="btn-brand" onclick="doLogin()">Sign in</button></div>`;
+}
+window.doLogin = function(){ key = document.getElementById('key').value.trim(); localStorage.setItem('blink_staff_key', key); lastHash=''; start(); };
+
+function itemRow(o, it) {
+  if (it.itemStatus === 'out_of_stock')
+    return `<li><span class="item-name">${it.emoji} ${it.name}${it.qty>1?' ×'+it.qty:''}</span><span class="tag wait">waiting</span></li>`;
+  if (it.itemStatus === 'substituted')
+    return `<li><span class="item-name">${it.emoji} ${it.name} → ${it.substitute.emoji} ${it.substitute.name}</span><span class="tag sub">sub</span></li>`;
+  if (it.itemStatus === 'refunded')
+    return `<li><span class="item-name" style="text-decoration:line-through;color:#7C736E">${it.emoji} ${it.name}</span><span class="tag refund">refunded</span></li>`;
+  const shopping = o.status === 'ACCEPTED' || o.status === 'PICKING';
+  return `<li><span class="item-name">${it.emoji} ${it.name}${it.qty>1?' ×'+it.qty:''}</span>` +
+    (shopping ? `<button class="oos-btn" onclick="oos('${o.id}','${it.id}')">Out of stock</button>` : '') + `</li>`;
+}
+function card(o) {
+  const done = o.status === 'DELIVERED' || o.status === 'CANCELLED';
+  const next = NEXT[o.status];
+  const blockedNext = next && o.status === 'PICKING' && o.needsSubstitution;
+  const claimable = o.status === 'PLACED' && !o.claimed;
+  const shopping = o.status === 'ACCEPTED' || o.status === 'PICKING';
+  const delivering = o.status === 'OUT_FOR_DELIVERY';
+  const url = navUrl(o);
+  const showMap = (shopping || delivering);
+  return `<div class="order ${done?'done':''} ${o.needsSubstitution?'needs':''} ${o.dispatchLevel>0&&claimable?'broadcast':''}">
+    <div class="order-top"><span class="oid">#${o.shortId}</span>
+      <span class="status ${done?'done':''}">${o.status.replace(/_/g,' ')}</span></div>
+    <div class="meta"><b>UNL</b> · ${o.building}${o.note?` · “${o.note}”`:''}<br/>
+      ${o.phone} · payout <b>${money(o.deliveryFee)}</b> · order <span class="total">${money(o.total)}</span></div>
+    ${o.dispatchLevel>0 && claimable ? `<div class="bcast">🚨 Unclaimed — ${o.dispatchLevel>=2?'admin alerted for manual assignment.':'high-priority re-broadcast.'}</div>` : ''}
+    ${o.needsSubstitution ? `<div class="banner">⏳ Waiting on the customer to resolve an out-of-stock item.</div>` : ''}
+    ${showMap ? `<div class="map" id="map_${o.id}"></div>` : ''}
+    ${shopping ? `<div class="card-note">💳 Pay at the register with the Blink company card, then snap the receipt.</div>` : ''}
+    <ul class="checklist">${o.items.map(it => itemRow(o, it)).join('')}</ul>
+    ${showMap && url ? `<div class="toolbar">
+        <a class="nav-btn" href="${url}" target="_blank" rel="noopener">🧭 Navigate</a>
+        ${o.receiptCaptured ? '' : `<label class="rcpt-btn" onclick="pickReceipt('${o.id}')">📸 Receipt</label>`}
+      </div>` : ''}
+    ${o.receiptCaptured ? '<div class="rcpt-done">✓ Receipt captured</div>' : ''}
+    <div class="actions">
+      ${claimable ? `<button class="accept" onclick="accept('${o.id}')">Accept · ${money(o.deliveryFee)}</button>` : ''}
+      ${next && !claimable ? `<button ${blockedNext?'disabled':''} onclick="advance('${o.id}','${next}')">${blockedNext?'Resolve items first':NEXT_LABEL[o.status]}</button>` : ''}
+    </div></div>`;
+}
+
+async function drawMap(o) {
+  const el = document.getElementById('map_' + o.id);
+  if (!el || maps[o.id]) return;
+  const c = coordsFor(o); if (!c) return;
+  const map = L.map(el, { zoomControl:false, attributionControl:false, dragging:false, scrollWheelZoom:false });
+  maps[o.id] = map;
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+  L.marker([c.store.lat, c.store.lng]).addTo(map);
+  L.marker([c.drop.lat, c.drop.lng]).addTo(map);
+  try {
+    const r = routeCache[o.id] || (routeCache[o.id] = await api('/api/orders/' + o.id + '/route'));
+    const latlngs = r.coordinates.map(p => [p[1], p[0]]);
+    const line = L.polyline(latlngs, { color:'#9E1B1B', weight:4 }).addTo(map);
+    map.fitBounds(line.getBounds().pad(0.2));
+  } catch {
+    map.fitBounds(L.latLngBounds([c.store.lat,c.store.lng],[c.drop.lat,c.drop.lng]).pad(0.3));
+  }
+  setTimeout(() => map.invalidateSize(), 60);
+}
+
+async function render() {
+  let orders;
+  try { orders = await api('/api/driver/orders'); } catch { return loginView(); }
+  const hash = JSON.stringify(orders.map(o => [o.id,o.status,o.needsSubstitution,o.receiptCaptured,o.dispatchLevel,o.claimed]));
+  if (hash === lastHash) return; // no change → keep maps stable
+  lastHash = hash;
+  for (const id in maps) { maps[id].remove(); delete maps[id]; }
+  const active = orders.filter(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED').length;
+  document.getElementById('app').innerHTML =
+    `<header><div><h1>BLIN<span class="k">K</span> <span style="font-size:15px">Driver</span></h1><div class="sub">UNL courier queue</div></div><span class="badge">${active} active</span></header>
+     <div class="wrap">${orders.length ? `<div class="grid">${orders.map(card).join('')}</div>` : `<div class="empty">No orders yet.</div>`}</div>`;
+  orders.filter(o => o.status==='ACCEPTED'||o.status==='PICKING'||o.status==='OUT_FOR_DELIVERY').forEach(drawMap);
+}
+
+window.accept = async function(id){ await api(`/api/driver/orders/${id}/accept`, { method:'POST', body:JSON.stringify({ driverName:'Ava M.' }) }); lastHash=''; render(); };
+window.advance = async function(id, status){
+  const r = await api(`/api/driver/orders/${id}/status`, { method:'POST', body:JSON.stringify({ status }) });
+  if (r && r.error === 'needs_substitution') alert('Customer still needs to resolve an out-of-stock item.');
+  lastHash=''; render();
+};
+window.oos = async function(orderId, itemId){ await api(`/api/driver/orders/${orderId}/items/${itemId}/out-of-stock`, { method:'POST' }); lastHash=''; render(); };
+window.pickReceipt = function(orderId){ receiptFor = orderId; document.getElementById('rcptInput').click(); };
+document.getElementById('rcptInput').addEventListener('change', function(e){
+  const f = e.target.files[0]; if (!f || !receiptFor) return;
+  const reader = new FileReader();
+  reader.onload = async () => { await api(`/api/driver/orders/${receiptFor}/receipt`, { method:'POST', body: JSON.stringify({ image: reader.result }) }); receiptFor=null; e.target.value=''; lastHash=''; render(); };
+  reader.readAsDataURL(f);
+});
+async function start(){
+  try { campuses = await (await fetch('/api/campuses')).json(); } catch {}
+  render(); clearInterval(window._poll); window._poll = setInterval(render, 3000);
+}
+if (key) start(); else loginView();
+</script>
+</body>
+</html>
