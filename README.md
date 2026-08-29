@@ -119,3 +119,9 @@ Remaining, and what each needs from you:
 6. **Native driver app** — the `/driver` web dashboard covers the workflow;
    a packaged driver app adds GPS streaming + maps.
 7. **Ship** — Apple Developer ($99/yr) + Google Play ($25), build with Expo EAS.
+
+## Timeline
+
+Written 16 July - 27 August 2026 (55 source files).
+
+Dates come from file modification times on disk, not from commit history - this repository was initialised later, so the commit dates are all from when it was published rather than when the code was written.
